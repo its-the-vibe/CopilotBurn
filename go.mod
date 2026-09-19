@@ -1,4 +1,4 @@
-module github.com/its-the-vibe/GdayRedis
+module github.com/its-the-vibe/CopilotBurn
 
 go 1.27.1
 
