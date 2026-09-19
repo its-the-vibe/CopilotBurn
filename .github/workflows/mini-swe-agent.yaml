@@ -1,0 +1,20 @@
+name: "Trigger Mini-SWE-Agent"
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  invoke-agent:
+    if: github.event.label.name == 'mini-swe-agent'
+    uses: its-the-vibe/.github/.github/workflows/mini-swe-agent.yaml@main
+    with:
+      issue_url: ${{ github.event.issue.html_url }}
+      issue_number: ${{ github.event.issue.number }}
+      issue_title: ${{ github.event.issue.title }}
+    secrets: inherit
