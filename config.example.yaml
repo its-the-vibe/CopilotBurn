@@ -11,3 +11,10 @@ poppit:
 
 # How often (in seconds) to ping the Redis server
 ping_interval_seconds: 5
+
+# Maximum monthly Copilot AI credits quota (default: 1500)
+ai_credit_quota: 1500
+
+# Web server configuration for the dashboard and API
+server:
+  port: 8080

@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CopilotBurn - AI Credit Usage Dashboard</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header" role="banner">
+      <div class="brand">
+        <div class="brand-logo" aria-hidden="true">&#x1F525;</div>
+        <div>
+          <h1 class="brand-title">CopilotBurn</h1>
+          <p class="brand-subtitle">GitHub Copilot AI Credit Monitor</p>
+        </div>
+      </div>
+      
+      <div class="header-controls">
+        <div class="month-selector" role="group" aria-label="Month navigation">
+          <button id="prevMonthBtn" class="btn btn-icon" aria-label="Previous Month" title="Previous Month">&larr;</button>
+          <span id="currentMonthLabel" class="current-month-text" aria-live="polite">Loading...</span>
+          <button id="nextMonthBtn" class="btn btn-icon" aria-label="Next Month" title="Next Month">&rarr;</button>
+          <button id="currentMonthBtn" class="btn btn-sm" title="Go to current month">This Month</button>
+        </div>
+
+        <div class="header-actions">
+          <button id="refreshBtn" class="btn btn-primary" aria-label="Refresh usage data">
+            <span class="refresh-icon" aria-hidden="true">&#x21bb;</span> Refresh
+          </button>
+          <span id="lastUpdated" class="last-updated" aria-live="polite"></span>
+        </div>
+      </div>
+    </header>
+
+    <div id="alertBanner" class="alert hidden" role="alert" aria-live="assertive"></div>
+
+    <main id="mainContent" class="main-content" role="main">
+      <!-- Top Metrics Grid -->
+      <section class="metrics-grid" aria-label="Usage Metrics Summary">
+        <!-- Monthly Total Card -->
+        <article class="card metric-card" id="monthlyTotalCard">
+          <div class="card-header">
+            <h2 class="card-label">Monthly AI Credits</h2>
+            <span class="card-icon" aria-hidden="true">&#x1F4CA;</span>
+          </div>
+          <div class="metric-value-container">
+            <div class="metric-value">
+              <span id="monthlyTotalVal">0.00</span>
+              <span class="metric-divider">/</span>
+              <span id="quotaTotalVal" class="metric-quota">1,500</span>
+              <span class="metric-unit">credits</span>
+            </div>
+          </div>
+          <div class="progress-bar-container" role="progressbar" id="quotaProgressBar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" aria-label="Monthly quota used percentage">
+            <div class="progress-bar-fill" id="quotaProgressFill" style="width: 0%"></div>
+          </div>
+          <div class="metric-footer">
+            <span id="quotaPercentText">0.0% used</span>
+            <span class="bullet" aria-hidden="true">&bull;</span>
+            <span id="quotaRemainingText">1,500 credits remaining</span>
+          </div>
+        </article>
+
+        <!-- Today's Usage Card (Highlighted) -->
+        <article class="card metric-card card-today" id="todayUsageCard">
+          <div class="card-header">
+            <h2 class="card-label">Today's Usage</h2>
+            <span id="todayStatusBadge" class="badge badge-neutral">No usage today</span>
+          </div>
+          <div class="metric-value-container">
+            <div class="metric-value today-value">
+              <span id="todayUsageVal">0.00</span>
+              <span class="metric-unit">credits</span>
+            </div>
+          </div>
+          <div class="today-indicator" id="todayIndicatorBar"></div>
+          <div class="metric-footer">
+            <span id="todaySubtext">Date: -</span>
+          </div>
+        </article>
+
+        <!-- Configured Quota Card -->
+        <article class="card metric-card" id="quotaCard">
+          <div class="card-header">
+            <h2 class="card-label">Monthly Quota</h2>
+            <span class="card-icon" aria-hidden="true">&#x1F3AF;</span>
+          </div>
+          <div class="metric-value-container">
+            <div class="metric-value">
+              <span id="configuredQuotaVal">1,500</span>
+              <span class="metric-unit">credits</span>
+            </div>
+          </div>
+          <div class="metric-footer">
+            <span>Target: <strong id="dailyTargetPace">50.00</strong> credits/day</span>
+          </div>
+        </article>
+
+        <!-- Burn Rate & Pace Card -->
+        <article class="card metric-card" id="paceCard">
+          <div class="card-header">
+            <h2 class="card-label">Burn Rate Pace</h2>
+            <span id="pacingBadge" class="badge badge-success">On Track</span>
+          </div>
+          <div class="metric-value-container">
+            <div class="metric-value" id="actualDailyPace">
+              <span>0.00</span>
+              <span class="metric-unit">credits/day</span>
+            </div>
+          </div>
+          <div class="metric-footer">
+            <span id="daysRemainingText">-- days remaining</span>
+          </div>
+        </article>
+      </section>
+
+      <!-- Cumulative Chart Section -->
+      <section class="card chart-card" aria-label="Cumulative Daily Chart">
+        <div class="card-header chart-header">
+          <div>
+            <h2 class="card-title">Cumulative AI Credit Usage</h2>
+            <p class="card-subtitle">Daily progression towards monthly quota</p>
+          </div>
+          <div class="chart-legend-info" id="chartLegendInfo" aria-hidden="true">
+            <span class="legend-item"><span class="legend-dot dot-cumulative"></span> Cumulative</span>
+            <span class="legend-item"><span class="legend-dot dot-daily"></span> Daily</span>
+            <span class="legend-item"><span class="legend-dot dot-quota"></span> Quota Limit</span>
+            <span class="legend-item"><span class="legend-dot dot-target"></span> Target Pace</span>
+          </div>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="usageChart" role="img" aria-label="Cumulative AI credit usage chart by day of month"></canvas>
+        </div>
+      </section>
+
+      <!-- Daily Breakdown Table Section -->
+      <section class="card table-card" aria-label="Daily Usage Breakdown Table">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Daily Breakdown</h2>
+            <p class="card-subtitle">Recorded AI credit usage per day</p>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table" id="dailyTable">
+            <caption>Daily breakdown of AI credit consumption for the selected month</caption>
+            <thead>
+              <tr>
+                <th scope="col">Day</th>
+                <th scope="col">Date</th>
+                <th scope="col" class="text-right">Daily Usage</th>
+                <th scope="col" class="text-right">Cumulative Total</th>
+                <th scope="col" class="text-right">% of Quota</th>
+                <th scope="col" class="text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody id="dailyTableBody">
+              <!-- Rendered via JavaScript -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer class="app-footer" role="contentinfo">
+      <p>CopilotBurn &bull; GitHub Copilot AI Credit Usage Monitor</p>
+    </footer>
+  </div>
+
+  <div id="loadingOverlay" class="loading-overlay" aria-live="assertive" aria-busy="true">
+    <div class="spinner"></div>
+    <p>Loading usage data...</p>
+  </div>
+
+  <!-- Local Chart.js with CDN Fallback -->
+  <script src="/static/chart.umd.min.js"></script>
+  <script>
+    if (typeof Chart === 'undefined') {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js"><\/script>');
+    }
+  </script>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

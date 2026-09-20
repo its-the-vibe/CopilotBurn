@@ -29,14 +29,24 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.Poppit.OutputChannel != "poppit:command-output" {
 		t.Errorf("expected default output_channel poppit:command-output, got %s", cfg.Poppit.OutputChannel)
 	}
+	if cfg.AICreditQuota != 1500.0 {
+		t.Errorf("expected default ai_credit_quota 1500, got %f", cfg.AICreditQuota)
+	}
+	if cfg.Server.Port != 8080 {
+		t.Errorf("expected default server.port 8080, got %d", cfg.Server.Port)
+	}
 }
 
 func TestLoadConfig_EnvOverrides(t *testing.T) {
 	os.Setenv("REDIS_KEY_PREFIX", "custom-burn:")
 	os.Setenv("POPPIT_SERVICE_REDIS_LIST_NAME", "custom-notifications")
+	os.Setenv("AI_CREDIT_QUOTA", "2500")
+	os.Setenv("PORT", "9090")
 	defer func() {
 		os.Unsetenv("REDIS_KEY_PREFIX")
 		os.Unsetenv("POPPIT_SERVICE_REDIS_LIST_NAME")
+		os.Unsetenv("AI_CREDIT_QUOTA")
+		os.Unsetenv("PORT")
 	}()
 
 	cfg, err := loadConfig()
@@ -49,5 +59,11 @@ func TestLoadConfig_EnvOverrides(t *testing.T) {
 	}
 	if cfg.Poppit.ListName != "custom-notifications" {
 		t.Errorf("expected list name custom-notifications, got %s", cfg.Poppit.ListName)
+	}
+	if cfg.AICreditQuota != 2500.0 {
+		t.Errorf("expected ai_credit_quota 2500, got %f", cfg.AICreditQuota)
+	}
+	if cfg.Server.Port != 9090 {
+		t.Errorf("expected server port 9090, got %d", cfg.Server.Port)
 	}
 }

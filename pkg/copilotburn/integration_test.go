@@ -145,4 +145,20 @@ func TestEndToEndPoppitPipeline(t *testing.T) {
 	if len(cmdsAfter) != 0 {
 		t.Fatalf("expected 0 commands on second run, got %d", len(cmdsAfter))
 	}
+
+	// 7. Verify GetMonthlyUsage accurately reflects the pipeline output
+	summary, err := copilotburn.GetMonthlyUsage(ctx, rdb, keyPrefix, now, now, 1500)
+	if err != nil {
+		t.Fatalf("GetMonthlyUsage failed: %v", err)
+	}
+
+	if summary.MonthlyTotal != 2.0 {
+		t.Errorf("expected monthly total 2.0, got %f", summary.MonthlyTotal)
+	}
+	if summary.TodayUsage != 1.0 {
+		t.Errorf("expected today usage 1.0, got %f", summary.TodayUsage)
+	}
+	if summary.RemainingQuota != 1498.0 {
+		t.Errorf("expected remaining quota 1498.0, got %f", summary.RemainingQuota)
+	}
 }
