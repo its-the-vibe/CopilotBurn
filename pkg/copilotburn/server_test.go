@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -155,5 +156,13 @@ func TestWebHandler(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected status OK (200) for web handler, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Ideal Burndown Rate") {
+		t.Errorf("expected HTML body to contain 'Ideal Burndown Rate', but it did not")
+	}
+	if !strings.Contains(body, "#10b981") {
+		t.Errorf("expected HTML body to contain '#10b981', but it did not")
 	}
 }

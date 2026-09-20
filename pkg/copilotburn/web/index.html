@@ -427,19 +427,37 @@
             document.getElementById('remainingCreditsDisplay').textContent = `${formatNumber(remaining)} credits`;
 
             // 4. Update Chart
-            renderChart(daily, quota);
+            renderChart(daily, quota, currentDate);
 
             // 5. Update Table
             renderTable(daily, quota, currentDate);
         }
 
-        function renderChart(daily, quota) {
+        function getDaysInMonth(dateStr) {
+            if (!dateStr) {
+                const now = new Date();
+                return new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            }
+            const parts = dateStr.split('-');
+            if (parts.length < 2) {
+                const now = new Date();
+                return new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+            }
+            const year = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10);
+            return new Date(year, month, 0).getDate();
+        }
+
+        function renderChart(daily, quota, currentDate) {
             const ctx = document.getElementById('usageChart').getContext('2d');
 
             const labels = daily.map(d => `Day ${d.day}`);
             const cumulativeData = daily.map(d => d.cumulative_credits);
             const dailyData = daily.map(d => d.daily_credits);
             const quotaLine = daily.map(() => quota);
+
+            const daysInMonth = getDaysInMonth(currentDate || (daily.length > 0 ? daily[0].date : null));
+            const idealBurndownData = daily.map(d => (d.day / daysInMonth) * quota);
 
             if (chartInstance) {
                 chartInstance.destroy();
@@ -465,6 +483,15 @@
                             pointRadius: 4,
                             pointHoverRadius: 7,
                             pointBackgroundColor: '#38bdf8',
+                        },
+                        {
+                            label: 'Ideal Burndown Rate',
+                            data: idealBurndownData,
+                            borderColor: '#10b981',
+                            borderDash: [3, 3],
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: false,
                         },
                         {
                             label: 'Monthly Quota Limit',
@@ -498,6 +525,16 @@
                             borderColor: '#334155',
                             borderWidth: 1,
                             callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += formatNumber(context.parsed.y) + ' credits';
+                                    }
+                                    return label;
+                                },
                                 footer: function(tooltipItems) {
                                     const index = tooltipItems[0].dataIndex;
                                     const dailyVal = dailyData[index] || 0;
