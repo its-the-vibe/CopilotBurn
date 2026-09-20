@@ -9,17 +9,25 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/its-the-vibe/CopilotBurn/pkg/copilotburn"
+	"github.com/its-the-vibe/CopilotBurn/pkg/poppit"
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/viper"
 )
 
 type Config struct {
 	Redis struct {
-		Host     string
-		Port     int
-		Password string
+		Host      string
+		Port      int
+		Password  string
+		KeyPrefix string `mapstructure:"key_prefix"`
+		TTLDays   int    `mapstructure:"ttl_days"`
 	}
 	PingIntervalSeconds int `mapstructure:"ping_interval_seconds"`
+	Poppit              struct {
+		Workers    int
+		BufferSize int `mapstructure:"buffer_size"`
+	}
 }
 
 func loadConfig() (*Config, error) {
@@ -30,7 +38,11 @@ func loadConfig() (*Config, error) {
 
 	viper.SetDefault("redis.host", "localhost")
 	viper.SetDefault("redis.port", 6379)
+	viper.SetDefault("redis.key_prefix", "copilot-burn:")
+	viper.SetDefault("redis.ttl_days", 90)
 	viper.SetDefault("ping_interval_seconds", 5)
+	viper.SetDefault("poppit.workers", 4)
+	viper.SetDefault("poppit.buffer_size", 100)
 
 	// Allow REDIS_PASSWORD from environment / .env
 	viper.AutomaticEnv()
@@ -67,6 +79,23 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Initialize and start Poppit engine
+	poppitEngine := poppit.NewEngine(poppit.NewOSExecutor(), cfg.Poppit.Workers, cfg.Poppit.BufferSize)
+	poppitEngine.Start(ctx)
+	defer poppitEngine.Stop()
+
+	// Start command output listener for Poppit
+	copilotburn.StartOutputListener(ctx, rdb, poppitEngine.Results(), cfg.Redis.KeyPrefix, cfg.Redis.TTLDays)
+
+	// Fetch missing daily data on startup
+	log.Println("Checking for missing daily Copilot usage data...")
+	missingCmds, err := copilotburn.FetchMissingDailyData(ctx, rdb, poppitEngine, time.Now(), cfg.Redis.KeyPrefix)
+	if err != nil {
+		log.Printf("Error fetching missing daily data: %v", err)
+	} else {
+		log.Printf("Submitted %d missing daily data commands to Poppit", len(missingCmds))
+	}
 
 	interval := time.Duration(cfg.PingIntervalSeconds) * time.Second
 	ticker := time.NewTicker(interval)
