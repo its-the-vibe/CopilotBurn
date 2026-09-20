@@ -5,8 +5,8 @@ services:
     pull_policy: always
     ports:
       - "${PORT}:8080"
-    env_file:
-      - .env
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
       - ./config.yaml:/config.yaml:ro
     read_only: true
