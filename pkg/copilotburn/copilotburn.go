@@ -18,6 +18,12 @@ const (
 
 	// DefaultTTLDays is the default time-to-live for daily usage records in days.
 	DefaultTTLDays = 90
+
+	// DefaultAICreditQuota is the default monthly AI credit quota limit.
+	DefaultAICreditQuota = 1500.0
+
+	// DefaultServerPort is the default HTTP server port.
+	DefaultServerPort = 8080
 )
 
 // TimePeriod represents the year, month, and day of a GitHub usage response.

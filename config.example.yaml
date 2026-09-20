@@ -9,5 +9,10 @@ poppit:
   list_name: "poppit:notifications"
   output_channel: "poppit:command-output"
 
+server:
+  port: 8080
+
+ai_credit_quota: 1500
+
 # How often (in seconds) to ping the Redis server
 ping_interval_seconds: 5

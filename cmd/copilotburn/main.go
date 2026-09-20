@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -27,7 +28,11 @@ type Config struct {
 		ListName      string `mapstructure:"list_name"`
 		OutputChannel string `mapstructure:"output_channel"`
 	}
-	PingIntervalSeconds int `mapstructure:"ping_interval_seconds"`
+	Server struct {
+		Port int `mapstructure:"port"`
+	}
+	AICreditQuota       float64 `mapstructure:"ai_credit_quota"`
+	PingIntervalSeconds int     `mapstructure:"ping_interval_seconds"`
 }
 
 func loadConfig() (*Config, error) {
@@ -42,6 +47,8 @@ func loadConfig() (*Config, error) {
 	viper.SetDefault("redis.ttl_days", copilotburn.DefaultTTLDays)
 	viper.SetDefault("poppit.list_name", poppit.DefaultNotificationListName)
 	viper.SetDefault("poppit.output_channel", poppit.DefaultCommandOutputChannel)
+	viper.SetDefault("server.port", copilotburn.DefaultServerPort)
+	viper.SetDefault("ai_credit_quota", copilotburn.DefaultAICreditQuota)
 	viper.SetDefault("ping_interval_seconds", 5)
 
 	// Environment variables
@@ -51,6 +58,8 @@ func loadConfig() (*Config, error) {
 	viper.BindEnv("redis.ttl_days", "REDIS_TTL_DAYS")
 	viper.BindEnv("poppit.list_name", "POPPIT_SERVICE_REDIS_LIST_NAME", "POPPIT_LIST_NAME")
 	viper.BindEnv("poppit.output_channel", "POPPIT_SERVICE_COMMAND_OUTPUT_CHANNEL", "POPPIT_OUTPUT_CHANNEL")
+	viper.BindEnv("server.port", "PORT", "SERVER_PORT")
+	viper.BindEnv("ai_credit_quota", "AI_CREDIT_QUOTA")
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -102,6 +111,32 @@ func main() {
 	} else {
 		log.Printf("Submitted %d missing daily data commands to Poppit", len(missingCmds))
 	}
+
+	// Start HTTP server for dashboard and API
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/usage", copilotburn.HandleAPIUsage(rdb, cfg.Redis.KeyPrefix, cfg.AICreditQuota, nil))
+	mux.Handle("/", copilotburn.WebHandler())
+
+	serverAddr := fmt.Sprintf(":%d", cfg.Server.Port)
+	srv := &http.Server{
+		Addr:    serverAddr,
+		Handler: mux,
+	}
+
+	go func() {
+		log.Printf("Starting dashboard server on http://localhost%s", serverAddr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("HTTP server shutdown error: %v", err)
+		}
+	}()
 
 	interval := time.Duration(cfg.PingIntervalSeconds) * time.Second
 	ticker := time.NewTicker(interval)

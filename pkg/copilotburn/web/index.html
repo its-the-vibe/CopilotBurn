@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CopilotBurn - AI Credit Usage Dashboard</title>
+    <!-- Chart.js for data visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-card: #1e293b;
+            --bg-card-hover: #334155;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-primary: #38bdf8;
+            --accent-gradient-start: #3b82f6;
+            --accent-gradient-end: #8b5cf6;
+            --today-highlight-bg: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(239, 68, 68, 0.15));
+            --today-border: #f59e0b;
+            --today-text: #fbbf24;
+            --border-color: #334155;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+            padding: 2rem 1rem;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .brand-icon {
+            font-size: 2rem;
+        }
+
+        .brand h1 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-gradient-start), var(--accent-gradient-end));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand p {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+        }
+
+        .header-meta {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .meta-badge {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .btn-refresh {
+            background-color: var(--accent-gradient-start);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+
+        .btn-refresh:hover {
+            opacity: 0.9;
+        }
+
+        /* Metrics Cards */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            position: relative;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .card-title {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .card-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .card-subtext {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        /* Highlighted Today's Card */
+        .card-today {
+            background: var(--today-highlight-bg);
+            border: 2px solid var(--today-border);
+            box-shadow: 0 0 15px rgba(245, 158, 11, 0.25);
+        }
+
+        .card-today .card-title {
+            color: var(--today-text);
+        }
+
+        .today-badge {
+            background-color: var(--today-border);
+            color: #000;
+            font-weight: 700;
+            font-size: 0.75rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 1rem;
+            text-transform: uppercase;
+        }
+
+        /* Progress Bar */
+        .progress-bar-container {
+            width: 100%;
+            height: 0.5rem;
+            background-color: var(--bg-primary);
+            border-radius: 1rem;
+            overflow: hidden;
+            margin-top: 0.75rem;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--accent-gradient-start), var(--accent-gradient-end));
+            border-radius: 1rem;
+            transition: width 0.5s ease;
+        }
+
+        /* Chart Section */
+        .chart-container {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .chart-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .canvas-wrapper {
+            position: relative;
+            height: 380px;
+            width: 100%;
+        }
+
+        /* Table Section */
+        .table-container {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            overflow-x: auto;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr.is-today {
+            background-color: rgba(245, 158, 11, 0.1);
+            font-weight: 600;
+        }
+
+        /* Error Banner */
+        .error-banner {
+            display: none;
+            background-color: rgba(239, 68, 68, 0.2);
+            border: 1px solid var(--danger);
+            color: var(--danger);
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        /* Responsive Breakpoints */
+        @media (max-width: 640px) {
+            body {
+                padding: 1rem 0.5rem;
+            }
+            .card-value {
+                font-size: 1.5rem;
+            }
+            .canvas-wrapper {
+                height: 280px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="brand">
+                <span class="brand-icon">🔥</span>
+                <div>
+                    <h1>CopilotBurn</h1>
+                    <p>AI Credit Usage & Quota Monitor</p>
+                </div>
+            </div>
+            <div class="header-meta">
+                <div class="meta-badge" id="currentDateBadge">Date: --</div>
+                <button class="btn-refresh" id="refreshBtn" onclick="fetchData()">Refresh Data</button>
+            </div>
+        </header>
+
+        <div class="error-banner" id="errorBanner"></div>
+
+        <!-- Metric Summary Cards -->
+        <div class="metrics-grid">
+            <!-- Quota Usage Card -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Monthly Quota</span>
+                    <span class="card-title" id="quotaPctText">0%</span>
+                </div>
+                <div class="card-value" id="quotaDisplay">0 / 1,500</div>
+                <div class="card-subtext">Cumulative credits used so far this month</div>
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill" id="progressBar"></div>
+                </div>
+            </div>
+
+            <!-- Today's Usage Card (HIGHLIGHTED) -->
+            <div class="card card-today">
+                <div class="card-header">
+                    <span class="card-title">Today's Usage</span>
+                    <span class="today-badge">TODAY</span>
+                </div>
+                <div class="card-value" id="todayCreditsDisplay" style="color: var(--today-text);">0.00 credits</div>
+                <div class="card-subtext" id="todaySubtext">Usage recorded for today</div>
+            </div>
+
+            <!-- Remaining Quota Card -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Remaining Quota</span>
+                </div>
+                <div class="card-value" id="remainingCreditsDisplay">1,500 credits</div>
+                <div class="card-subtext" id="remainingSubtext">Available before monthly quota is reached</div>
+            </div>
+        </div>
+
+        <!-- Cumulative Daily Chart -->
+        <div class="chart-container">
+            <div class="chart-header">
+                <h2 class="chart-title">Cumulative AI Credit Progression</h2>
+            </div>
+            <div class="canvas-wrapper">
+                <canvas id="usageChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Daily Breakdown Table -->
+        <div class="table-container">
+            <h2 class="chart-title" style="margin-bottom: 1rem;">Daily Breakdown</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Day</th>
+                        <th>Date</th>
+                        <th>Daily Credits</th>
+                        <th>Cumulative Credits</th>
+                        <th>% of Quota</th>
+                    </tr>
+                </thead>
+                <tbody id="dailyTableBody">
+                    <tr><td colspan="5" style="text-align:center;">Loading data...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let chartInstance = null;
+
+        async function fetchData() {
+            const errorBanner = document.getElementById('errorBanner');
+            errorBanner.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/usage');
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.status} ${response.statusText}`);
+                }
+                const data = await response.json();
+                renderDashboard(data);
+            } catch (err) {
+                console.error('Failed to fetch usage data:', err);
+                errorBanner.textContent = `Failed to load AI credit usage data: ${err.message}`;
+                errorBanner.style.display = 'block';
+            }
+        }
+
+        function formatNumber(num) {
+            return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+        }
+
+        function renderDashboard(data) {
+            const quota = data.quota || 1500;
+            const total = data.total_credits || 0;
+            const today = data.today_credits || 0;
+            const currentDate = data.current_date || '';
+            const daily = data.daily || [];
+
+            // Update Header Date
+            document.getElementById('currentDateBadge').textContent = `Current Date: ${currentDate}`;
+
+            // 1. Update Quota Card
+            document.getElementById('quotaDisplay').textContent = `${formatNumber(total)} / ${formatNumber(quota)} credits`;
+            const pct = Math.min(100, ((total / quota) * 100)).toFixed(1);
+            document.getElementById('quotaPctText').textContent = `${pct}%`;
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = `${pct}%`;
+            if (pct >= 90) {
+                progressBar.style.background = 'var(--danger)';
+            } else if (pct >= 75) {
+                progressBar.style.background = 'var(--warning)';
+            } else {
+                progressBar.style.background = 'linear-gradient(90deg, var(--accent-gradient-start), var(--accent-gradient-end))';
+            }
+
+            // 2. Update Highlighted Today Card
+            document.getElementById('todayCreditsDisplay').textContent = `${formatNumber(today)} credits`;
+            if (today > 0) {
+                document.getElementById('todaySubtext').textContent = `Active AI usage recorded today (${currentDate})`;
+            } else {
+                document.getElementById('todaySubtext').textContent = `No AI credit consumption recorded yet today (${currentDate})`;
+            }
+
+            // 3. Update Remaining Quota Card
+            const remaining = Math.max(0, quota - total);
+            document.getElementById('remainingCreditsDisplay').textContent = `${formatNumber(remaining)} credits`;
+
+            // 4. Update Chart
+            renderChart(daily, quota);
+
+            // 5. Update Table
+            renderTable(daily, quota, currentDate);
+        }
+
+        function renderChart(daily, quota) {
+            const ctx = document.getElementById('usageChart').getContext('2d');
+
+            const labels = daily.map(d => `Day ${d.day}`);
+            const cumulativeData = daily.map(d => d.cumulative_credits);
+            const dailyData = daily.map(d => d.daily_credits);
+            const quotaLine = daily.map(() => quota);
+
+            if (chartInstance) {
+                chartInstance.destroy();
+            }
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, 300);
+            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.4)');
+            gradient.addColorStop(1, 'rgba(139, 92, 246, 0.05)');
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Cumulative AI Credits Used',
+                            data: cumulativeData,
+                            borderColor: '#38bdf8',
+                            backgroundColor: gradient,
+                            fill: true,
+                            tension: 0.3,
+                            borderWidth: 3,
+                            pointRadius: 4,
+                            pointHoverRadius: 7,
+                            pointBackgroundColor: '#38bdf8',
+                        },
+                        {
+                            label: 'Monthly Quota Limit',
+                            data: quotaLine,
+                            borderColor: '#ef4444',
+                            borderDash: [6, 6],
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: false,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#94a3b8',
+                                font: { size: 12 }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: '#1e293b',
+                            titleColor: '#f8fafc',
+                            bodyColor: '#cbd5e1',
+                            borderColor: '#334155',
+                            borderWidth: 1,
+                            callbacks: {
+                                footer: function(tooltipItems) {
+                                    const index = tooltipItems[0].dataIndex;
+                                    const dailyVal = dailyData[index] || 0;
+                                    return `Daily Usage: +${formatNumber(dailyVal)} credits`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'category',
+                            grid: { color: 'rgba(51, 65, 85, 0.4)' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        y: {
+                            grid: { color: 'rgba(51, 65, 85, 0.4)' },
+                            ticks: {
+                                color: '#94a3b8',
+                                callback: function(value) {
+                                    return value.toLocaleString();
+                                }
+                            },
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderTable(daily, quota, currentDate) {
+            const tbody = document.getElementById('dailyTableBody');
+            if (daily.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No usage records found.</td></tr>';
+                return;
+            }
+
+            let html = '';
+            for (const item of daily) {
+                const isToday = item.date === currentDate;
+                const pct = ((item.cumulative_credits / quota) * 100).toFixed(1);
+                html += `
+                    <tr class="${isToday ? 'is-today' : ''}">
+                        <td>${item.day} ${isToday ? '🌟' : ''}</td>
+                        <td>${item.date}</td>
+                        <td>${formatNumber(item.daily_credits)}</td>
+                        <td>${formatNumber(item.cumulative_credits)}</td>
+                        <td>${pct}%</td>
+                    </tr>
+                `;
+            }
+            tbody.innerHTML = html;
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', fetchData);
+    </script>
+</body>
+</html>

@@ -11,6 +11,8 @@ A service designed to record and measure GitHub Copilot AI usage, store usage da
 - Automatically identifies missing daily Copilot usage data for the current month up to today
 - Submits asynchronous command batches to Poppit via Redis list
 - Listens for command execution results on Redis Pub/Sub and stores verbatim JSON responses with configurable key prefix and TTL
+- **Web Dashboard**: Interactive dashboard visualizing daily cumulative AI credit progression against monthly quota
+- **API Endpoint**: `GET /api/usage` returning structured JSON summary of credit consumption
 - Minimal distroless runtime image
 - Read-only container filesystem
 - Configuration via `config.yaml` + environment variables
@@ -69,8 +71,34 @@ poppit:
   list_name: "poppit:notifications"
   output_channel: "poppit:command-output"
 
+server:
+  port: 8080
+
+ai_credit_quota: 1500
+
 ping_interval_seconds: 5
 ```
+
+## Web Dashboard & API
+
+CopilotBurn serves an embedded web dashboard and JSON API endpoint:
+
+- **Dashboard**: Access `http://localhost:8080/` in your browser to view:
+  - Cumulative daily usage chart with monthly quota line
+  - Highlighted card showing today's usage counter
+  - Monthly quota progress bar (e.g., `1,234 / 1,500 credits`)
+  - Daily breakdown table
+- **API Endpoint**: `GET /api/usage` returns JSON summary:
+  - `quota`: Configured monthly AI credit quota (default: `1500`)
+  - `current_date`: Current date string (`YYYY-MM-DD`)
+  - `total_credits`: Total credits consumed so far this month
+  - `today_credits`: Credits consumed today
+  - `daily`: Array of daily breakdowns with date, day number, daily credits, and cumulative credits
+
+### Environment Variables
+
+- `AI_CREDIT_QUOTA`: Set custom monthly quota limit (e.g. `1500`).
+- `PORT` / `SERVER_PORT`: Set HTTP server port (default `8080`).
 
 ## Makefile targets
 

@@ -3,8 +3,10 @@ services:
     build: .
     image: ghcr.io/its-the-vibe/copilotburn:latest
     pull_policy: always
-    env_file:
-      - .env
+    ports:
+      - "${PORT}:8080"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
     volumes:
       - ./config.yaml:/config.yaml:ro
     read_only: true
