@@ -2,20 +2,23 @@
 
 [![CI](https://github.com/its-the-vibe/CopilotBurn/actions/workflows/ci.yaml/badge.svg)](https://github.com/its-the-vibe/CopilotBurn/actions/workflows/ci.yaml)
 
-A production-ready "Hello World" Go service with Redis integration, containerised using a distroless Docker image.
+A service designed to record and measure GitHub Copilot AI usage, store usage data in Redis, and display monthly metrics.
 
 ## Features
 
 - Prints **Gday World** on startup
 - Pings a Redis server at a configurable interval
+- Automatically identifies missing daily Copilot usage data for the current month up to today
+- Submits asynchronous command batches to Poppit via Redis list
+- Listens for command execution results on Redis Pub/Sub and stores verbatim JSON responses with configurable key prefix and TTL
 - Minimal distroless runtime image
 - Read-only container filesystem
-- Configuration via `config.yaml` + `REDIS_PASSWORD` environment variable
+- Configuration via `config.yaml` + environment variables
 
 ## Prerequisites
 
 - [Go 1.24+](https://go.dev/dl/)
-- [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docs.docker.com/compose/)
+- [Docker](https://docs.docker.com/get-docker/) & [Docker Compose](https://docker.com/compose/)
 - An external Redis instance
 
 ## Quick Start
@@ -48,7 +51,7 @@ make docker-up
 
 | File | Purpose |
 |------|---------|
-| `config.yaml` | Redis host/port and ping interval (git-ignored) |
+| `config.yaml` | Redis and Poppit settings, ping interval (git-ignored) |
 | `config.example.yaml` | Template – copy to `config.yaml` |
 | `.env` | `REDIS_PASSWORD` secret (git-ignored) |
 | `.env.example` | Template – copy to `.env` |
@@ -59,6 +62,12 @@ make docker-up
 redis:
   host: localhost
   port: 6379
+  key_prefix: "copilot-burn:"
+  ttl_days: 90
+
+poppit:
+  list_name: "poppit:notifications"
+  output_channel: "poppit:command-output"
 
 ping_interval_seconds: 5
 ```
@@ -80,6 +89,9 @@ ping_interval_seconds: 5
 ```
 .
 ├── cmd/copilotburn/   # Application entry point
+├── pkg/
+│   ├── copilotburn/   # Copilot usage data fetching and Redis storage logic
+│   └── poppit/        # Poppit command submission and result structures
 ├── .github/workflows/ci.yaml
 ├── config.example.yaml
 ├── .env.example

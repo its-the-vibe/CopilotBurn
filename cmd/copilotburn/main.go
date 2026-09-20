@@ -9,15 +9,23 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/its-the-vibe/CopilotBurn/pkg/copilotburn"
+	"github.com/its-the-vibe/CopilotBurn/pkg/poppit"
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/viper"
 )
 
 type Config struct {
 	Redis struct {
-		Host     string
-		Port     int
-		Password string
+		Host      string
+		Port      int
+		Password  string
+		KeyPrefix string `mapstructure:"key_prefix"`
+		TTLDays   int    `mapstructure:"ttl_days"`
+	}
+	Poppit struct {
+		ListName      string `mapstructure:"list_name"`
+		OutputChannel string `mapstructure:"output_channel"`
 	}
 	PingIntervalSeconds int `mapstructure:"ping_interval_seconds"`
 }
@@ -30,11 +38,19 @@ func loadConfig() (*Config, error) {
 
 	viper.SetDefault("redis.host", "localhost")
 	viper.SetDefault("redis.port", 6379)
+	viper.SetDefault("redis.key_prefix", copilotburn.DefaultKeyPrefix)
+	viper.SetDefault("redis.ttl_days", copilotburn.DefaultTTLDays)
+	viper.SetDefault("poppit.list_name", poppit.DefaultNotificationListName)
+	viper.SetDefault("poppit.output_channel", poppit.DefaultCommandOutputChannel)
 	viper.SetDefault("ping_interval_seconds", 5)
 
-	// Allow REDIS_PASSWORD from environment / .env
+	// Environment variables
 	viper.AutomaticEnv()
 	viper.BindEnv("redis.password", "REDIS_PASSWORD")
+	viper.BindEnv("redis.key_prefix", "REDIS_KEY_PREFIX")
+	viper.BindEnv("redis.ttl_days", "REDIS_TTL_DAYS")
+	viper.BindEnv("poppit.list_name", "POPPIT_SERVICE_REDIS_LIST_NAME", "POPPIT_LIST_NAME")
+	viper.BindEnv("poppit.output_channel", "POPPIT_SERVICE_COMMAND_OUTPUT_CHANNEL", "POPPIT_OUTPUT_CHANNEL")
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -67,6 +83,25 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Test Redis connection
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		log.Printf("Warning: initial Redis ping failed: %v", err)
+	}
+
+	// Start command output listener for Poppit
+	if err := copilotburn.StartOutputListener(ctx, rdb, cfg.Poppit.OutputChannel, cfg.Redis.KeyPrefix, cfg.Redis.TTLDays); err != nil {
+		log.Printf("Error starting output listener: %v", err)
+	}
+
+	// Fetch missing daily data on startup
+	log.Println("Checking for missing daily Copilot usage data...")
+	missingCmds, err := copilotburn.FetchMissingDailyData(ctx, rdb, cfg.Poppit.ListName, time.Now(), cfg.Redis.KeyPrefix)
+	if err != nil {
+		log.Printf("Error fetching missing daily data: %v", err)
+	} else {
+		log.Printf("Submitted %d missing daily data commands to Poppit", len(missingCmds))
+	}
 
 	interval := time.Duration(cfg.PingIntervalSeconds) * time.Second
 	ticker := time.NewTicker(interval)
