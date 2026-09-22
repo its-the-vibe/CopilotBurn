@@ -417,3 +417,101 @@ func TestStartOutputListener(t *testing.T) {
 		t.Errorf("listener did not store output in Redis in time; val = %q, want %q", val, jsonOutput)
 	}
 }
+
+func TestTriggerRefresh(t *testing.T) {
+	s, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	defer s.Close()
+
+	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+	defer rdb.Close()
+
+	ctx := context.Background()
+	keyPrefix := "copilot-burn:"
+	listName := "poppit:notifications"
+
+	// Seed Days 1, 2, 3 in Redis
+	rdb.Set(ctx, "copilot-burn:2026-09-01", `{"data":"day1"}`, 0)
+	rdb.Set(ctx, "copilot-burn:2026-09-02", `{"data":"day2"}`, 0)
+	rdb.Set(ctx, "copilot-burn:2026-09-03", `{"data":"day3"}`, 0)
+
+	// Today is 2026-09-03 (yesterday is day 2)
+	now := time.Date(2026, 9, 3, 15, 0, 0, 0, time.UTC)
+
+	commands, err := copilotburn.TriggerRefresh(ctx, rdb, keyPrefix, listName, now)
+	if err != nil {
+		t.Fatalf("TriggerRefresh failed: %v", err)
+	}
+
+	if len(commands) != 2 {
+		t.Fatalf("expected 2 commands for today and yesterday, got %d", len(commands))
+	}
+
+	// Verify day 2 and day 3 are deleted from Redis
+	exists2, _ := rdb.Exists(ctx, "copilot-burn:2026-09-02").Result()
+	exists3, _ := rdb.Exists(ctx, "copilot-burn:2026-09-03").Result()
+	if exists2 != 0 || exists3 != 0 {
+		t.Errorf("expected keys for day 2 and 3 to be deleted, got exists2=%d, exists3=%d", exists2, exists3)
+	}
+
+	// Verify day 1 still exists
+	exists1, _ := rdb.Exists(ctx, "copilot-burn:2026-09-01").Result()
+	if exists1 != 1 {
+		t.Errorf("expected key for day 1 to remain in Redis, got exists1=%d", exists1)
+	}
+
+	// Verify Poppit list notification
+	val, err := rdb.LPop(ctx, listName).Result()
+	if err != nil {
+		t.Fatalf("expected notification in Redis list: %v", err)
+	}
+
+	var notification poppit.Notification
+	if err := json.Unmarshal([]byte(val), &notification); err != nil {
+		t.Fatalf("failed to unmarshal notification: %v", err)
+	}
+
+	if len(notification.Commands) != 2 {
+		t.Fatalf("expected 2 commands in notification, got %d", len(notification.Commands))
+	}
+}
+
+func TestTriggerRefresh_YesterdayInPreviousMonth(t *testing.T) {
+	s, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	defer s.Close()
+
+	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+	defer rdb.Close()
+
+	ctx := context.Background()
+	keyPrefix := "copilot-burn:"
+	listName := "poppit:notifications"
+
+	// Seed Aug 31 and Sept 1
+	rdb.Set(ctx, "copilot-burn:2026-08-31", `{"data":"aug31"}`, 0)
+	rdb.Set(ctx, "copilot-burn:2026-09-01", `{"data":"sept1"}`, 0)
+
+	// Today is 2026-09-01 (yesterday is Aug 31)
+	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+
+	commands, err := copilotburn.TriggerRefresh(ctx, rdb, keyPrefix, listName, now)
+	if err != nil {
+		t.Fatalf("TriggerRefresh failed: %v", err)
+	}
+
+	// Should re-fetch Sept 1 and Aug 31
+	if len(commands) != 2 {
+		t.Fatalf("expected 2 commands, got %d", len(commands))
+	}
+
+	existsSept1, _ := rdb.Exists(ctx, "copilot-burn:2026-09-01").Result()
+	existsAug31, _ := rdb.Exists(ctx, "copilot-burn:2026-08-31").Result()
+	if existsSept1 != 0 || existsAug31 != 0 {
+		t.Errorf("expected both Sept 1 and Aug 31 to be deleted, got Sept1=%d, Aug31=%d", existsSept1, existsAug31)
+	}
+}

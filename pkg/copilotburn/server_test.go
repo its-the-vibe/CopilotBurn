@@ -166,3 +166,121 @@ func TestWebHandler(t *testing.T) {
 		t.Errorf("expected HTML body to contain '#10b981', but it did not")
 	}
 }
+
+func TestHandleAPIRefresh(t *testing.T) {
+	s, err := miniredis.Run()
+	if err != nil {
+		t.Fatalf("failed to start miniredis: %v", err)
+	}
+	defer s.Close()
+
+	rdb := redis.NewClient(&redis.Options{Addr: s.Addr()})
+	defer rdb.Close()
+
+	keyPrefix := "copilot-burn:"
+	listName := "poppit:notifications"
+	nowFixed := time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)
+	broadcaster := copilotburn.NewSSEBroadcaster()
+
+	handler := copilotburn.HandleAPIRefresh(rdb, keyPrefix, listName, 1500, broadcaster, func() time.Time { return nowFixed })
+
+	// Reset state
+	copilotburn.ResetRefreshState()
+
+	// 1. Non-POST method (GET)
+	reqGet := httptest.NewRequest(http.MethodGet, "/api/refresh", nil)
+	recGet := httptest.NewRecorder()
+	handler.ServeHTTP(recGet, reqGet)
+
+	if recGet.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 Method Not Allowed, got %d", recGet.Code)
+	}
+
+	// 2. Valid POST method
+	reqPost := httptest.NewRequest(http.MethodPost, "/api/refresh", nil)
+	recPost := httptest.NewRecorder()
+	handler.ServeHTTP(recPost, reqPost)
+
+	if recPost.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d (body: %s)", recPost.Code, recPost.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(recPost.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp["status"] != "ok" {
+		t.Errorf("expected status 'ok', got %v", resp["status"])
+	}
+
+	// 3. Concurrent request while refresh in progress
+	reqPost2 := httptest.NewRequest(http.MethodPost, "/api/refresh", nil)
+	recPost2 := httptest.NewRecorder()
+	handler.ServeHTTP(recPost2, reqPost2)
+
+	if recPost2.Code != http.StatusConflict {
+		t.Errorf("expected 409 Conflict for concurrent refresh, got %d", recPost2.Code)
+	}
+
+	// Clean up state
+	copilotburn.ResetRefreshState()
+}
+
+func TestSSEBroadcaster(t *testing.T) {
+	broadcaster := copilotburn.NewSSEBroadcaster()
+
+	if broadcaster.ClientCount() != 0 {
+		t.Errorf("expected 0 clients initially, got %d", broadcaster.ClientCount())
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/events", nil).WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		broadcaster.ServeHTTP(rec, req)
+		close(done)
+	}()
+
+	// Give time for client registration
+	time.Sleep(50 * time.Millisecond)
+
+	if broadcaster.ClientCount() != 1 {
+		t.Errorf("expected 1 active client, got %d", broadcaster.ClientCount())
+	}
+
+	// Broadcast sample summary
+	summary := &copilotburn.UsageSummary{
+		Quota:        1500,
+		CurrentDate:  "2026-09-03",
+		TotalCredits: 25.0,
+		TodayCredits: 10.0,
+	}
+
+	broadcaster.Broadcast(summary)
+
+	// Cancel context to close stream
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for ServeHTTP to finish")
+	}
+
+	if broadcaster.ClientCount() != 0 {
+		t.Errorf("expected 0 clients after disconnection, got %d", broadcaster.ClientCount())
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, ": connected") {
+		t.Errorf("expected SSE body to contain ': connected', got %q", body)
+	}
+	if !strings.Contains(body, `"total_credits":25`) {
+		t.Errorf("expected SSE body to contain broadcasted data, got %q", body)
+	}
+}

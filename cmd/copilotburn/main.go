@@ -98,8 +98,10 @@ func main() {
 		log.Printf("Warning: initial Redis ping failed: %v", err)
 	}
 
+	broadcaster := copilotburn.NewSSEBroadcaster()
+
 	// Start command output listener for Poppit
-	if err := copilotburn.StartOutputListener(ctx, rdb, cfg.Poppit.OutputChannel, cfg.Redis.KeyPrefix, cfg.Redis.TTLDays); err != nil {
+	if err := copilotburn.StartOutputListenerWithBroadcaster(ctx, rdb, cfg.Poppit.OutputChannel, cfg.Redis.KeyPrefix, cfg.Redis.TTLDays, cfg.AICreditQuota, broadcaster, nil); err != nil {
 		log.Printf("Error starting output listener: %v", err)
 	}
 
@@ -115,6 +117,9 @@ func main() {
 	// Start HTTP server for dashboard and API
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/usage", copilotburn.HandleAPIUsage(rdb, cfg.Redis.KeyPrefix, cfg.AICreditQuota, nil))
+	mux.HandleFunc("/api/refresh", copilotburn.HandleAPIRefresh(rdb, cfg.Redis.KeyPrefix, cfg.Poppit.ListName, cfg.AICreditQuota, broadcaster, nil))
+	mux.Handle("/api/events", broadcaster)
+	mux.Handle("/api/sse", broadcaster)
 	mux.Handle("/", copilotburn.WebHandler())
 
 	serverAddr := fmt.Sprintf(":%d", cfg.Server.Port)
