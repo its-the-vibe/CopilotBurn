@@ -294,7 +294,8 @@
             </div>
             <div class="header-meta">
                 <div class="meta-badge" id="currentDateBadge">Date: --</div>
-                <button class="btn-refresh" id="refreshBtn" onclick="fetchData()">Refresh Data</button>
+                <div class="meta-badge" id="lastRefreshedBadge">Last refreshed: --</div>
+                <button class="btn-refresh" id="refreshBtn" onclick="triggerRefresh()">Refresh Data</button>
             </div>
         </header>
 
@@ -379,11 +380,77 @@
                 }
                 const data = await response.json();
                 renderDashboard(data);
+                updateLastRefreshedTimestamp();
             } catch (err) {
                 console.error('Failed to fetch usage data:', err);
                 errorBanner.textContent = `Failed to load AI credit usage data: ${err.message}`;
                 errorBanner.style.display = 'block';
             }
+        }
+
+        function setLoadingState(isLoading) {
+            const refreshBtn = document.getElementById('refreshBtn');
+            if (isLoading) {
+                refreshBtn.disabled = true;
+                refreshBtn.textContent = 'Refreshing...';
+                refreshBtn.style.opacity = '0.6';
+                refreshBtn.style.cursor = 'not-allowed';
+            } else {
+                refreshBtn.disabled = false;
+                refreshBtn.textContent = 'Refresh Data';
+                refreshBtn.style.opacity = '1';
+                refreshBtn.style.cursor = 'pointer';
+            }
+        }
+
+        function updateLastRefreshedTimestamp() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString();
+            document.getElementById('lastRefreshedBadge').textContent = `Last refreshed: ${timeStr}`;
+        }
+
+        async function triggerRefresh() {
+            const errorBanner = document.getElementById('errorBanner');
+            errorBanner.style.display = 'none';
+
+            setLoadingState(true);
+
+            try {
+                const response = await fetch('/api/refresh', { method: 'POST' });
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    throw new Error(errData.error || `HTTP ${response.status}: ${response.statusText}`);
+                }
+            } catch (err) {
+                console.error('Failed to trigger refresh:', err);
+                errorBanner.textContent = `Failed to refresh data: ${err.message}`;
+                errorBanner.style.display = 'block';
+                setLoadingState(false);
+            }
+        }
+
+        function setupSSE() {
+            if (!window.EventSource) {
+                console.warn('Server-Sent Events not supported in this browser.');
+                return;
+            }
+
+            const evtSource = new EventSource('/api/events');
+
+            evtSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    renderDashboard(data);
+                    setLoadingState(false);
+                    updateLastRefreshedTimestamp();
+                } catch (e) {
+                    console.error('Failed to parse SSE data:', e);
+                }
+            };
+
+            evtSource.onerror = function(err) {
+                console.error('SSE connection error:', err);
+            };
         }
 
         function formatNumber(num) {
@@ -589,7 +656,10 @@
         }
 
         // Initialize on page load
-        document.addEventListener('DOMContentLoaded', fetchData);
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchData();
+            setupSSE();
+        });
     </script>
 </body>
 </html>

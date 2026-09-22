@@ -120,6 +120,51 @@ func FetchMissingDailyData(ctx context.Context, rdb redis.Cmdable, poppitListNam
 	return commands, nil
 }
 
+// TriggerRefresh invalidates cached data for today and yesterday from Redis,
+// identifies missing days in the current month (plus yesterday if in the previous month),
+// and submits commands to Poppit to re-fetch the missing daily usage data.
+func TriggerRefresh(ctx context.Context, rdb redis.Cmdable, keyPrefix string, poppitListName string, now time.Time) ([]string, error) {
+	todayKey := FormatRedisKey(keyPrefix, now.Year(), int(now.Month()), now.Day())
+	yesterday := now.AddDate(0, 0, -1)
+	yesterdayKey := FormatRedisKey(keyPrefix, yesterday.Year(), int(yesterday.Month()), yesterday.Day())
+
+	// Delete today and yesterday from Redis
+	if err := rdb.Del(ctx, todayKey, yesterdayKey).Err(); err != nil {
+		return nil, fmt.Errorf("deleting cached data for refresh: %w", err)
+	}
+
+	missingDays, err := IdentifyMissingDays(ctx, rdb, now, keyPrefix)
+	if err != nil {
+		return nil, fmt.Errorf("identifying missing days after cache invalidation: %w", err)
+	}
+
+	// If yesterday was in previous month, check if it's missing and add to missingDays if so
+	if yesterday.Month() != now.Month() {
+		exists, err := rdb.Exists(ctx, yesterdayKey).Result()
+		if err == nil && exists == 0 {
+			missingDays = append(missingDays, time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 0, 0, 0, 0, now.Location()))
+		}
+	}
+
+	if len(missingDays) == 0 {
+		return nil, nil
+	}
+
+	commands := make([]string, 0, len(missingDays))
+	for _, d := range missingDays {
+		commands = append(commands, BuildCommand(d.Year(), int(d.Month()), d.Day()))
+	}
+
+	err = poppit.SubmitCommands(ctx, rdb, poppitListName, commands, map[string]interface{}{
+		"source": "copilotburn",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("submitting refresh commands to poppit: %w", err)
+	}
+
+	return commands, nil
+}
+
 // ProcessCommandOutput parses a command output received from Poppit and stores
 // the verbatim JSON response in Redis with the appropriate key and TTL.
 func ProcessCommandOutput(ctx context.Context, rdb redis.Cmdable, cmdOutput poppit.CommandOutput, keyPrefix string, ttlDays int) error {
@@ -172,8 +217,9 @@ func ProcessCommandOutput(ctx context.Context, rdb redis.Cmdable, cmdOutput popp
 	return nil
 }
 
-// StartOutputListener subscribes to the Poppit command output channel and processes incoming outputs.
-func StartOutputListener(ctx context.Context, rdb redis.UniversalClient, channelName string, keyPrefix string, ttlDays int) error {
+// StartOutputListenerWithBroadcaster subscribes to the Poppit command output channel, processes incoming outputs,
+// and checks if all daily usage data up to today is available. When complete, it broadcasts the updated summary via SSE.
+func StartOutputListenerWithBroadcaster(ctx context.Context, rdb redis.UniversalClient, channelName string, keyPrefix string, ttlDays int, quota float64, broadcaster *SSEBroadcaster, nowFunc func() time.Time) error {
 	if channelName == "" {
 		channelName = poppit.DefaultCommandOutputChannel
 	}
@@ -206,10 +252,44 @@ func StartOutputListener(ctx context.Context, rdb redis.UniversalClient, channel
 
 				if err := ProcessCommandOutput(ctx, rdb, cmdOutput, keyPrefix, ttlDays); err != nil {
 					log.Printf("Error processing command output: %v", err)
+					continue
+				}
+
+				now := time.Now()
+				if nowFunc != nil {
+					now = nowFunc()
+				}
+
+				missing, err := IdentifyMissingDays(ctx, rdb, now, keyPrefix)
+				if err == nil && len(missing) == 0 {
+					// Check if yesterday was in previous month and missing
+					yesterday := now.AddDate(0, 0, -1)
+					if yesterday.Month() != now.Month() {
+						yesterdayKey := FormatRedisKey(keyPrefix, yesterday.Year(), int(yesterday.Month()), yesterday.Day())
+						if exists, err := rdb.Exists(ctx, yesterdayKey).Result(); err == nil && exists == 0 {
+							continue
+						}
+					}
+
+					ResetRefreshState()
+
+					if broadcaster != nil {
+						summary, err := GetMonthlyUsageSummary(ctx, rdb, now, keyPrefix, quota)
+						if err == nil && summary != nil {
+							broadcaster.Broadcast(summary)
+						} else if err != nil {
+							log.Printf("Error generating usage summary for SSE broadcast: %v", err)
+						}
+					}
 				}
 			}
 		}
 	}()
 
 	return nil
+}
+
+// StartOutputListener subscribes to the Poppit command output channel and processes incoming outputs.
+func StartOutputListener(ctx context.Context, rdb redis.UniversalClient, channelName string, keyPrefix string, ttlDays int) error {
+	return StartOutputListenerWithBroadcaster(ctx, rdb, channelName, keyPrefix, ttlDays, DefaultAICreditQuota, nil, nil)
 }
